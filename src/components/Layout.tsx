@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertCircle,
   BarChart3,
   Barcode,
   BookCheck,
@@ -9,24 +10,30 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
+  Clock,
   Cloud,
   Cog,
   CreditCard,
   FileSpreadsheet,
   FileText,
+  Home,
   Landmark,
   LayoutDashboard,
   LayoutTemplate,
   ListChecks,
   Lock,
+  LogOut,
   Menu,
   MessageSquareText,
   Package,
+  PanelLeftClose,
+  PanelLeftOpen,
   PenLine,
   Plus,
   ReceiptText,
   Scale,
   ScrollText,
+  Search,
   Settings,
   ShieldAlert,
   ShieldCheck,
@@ -39,7 +46,6 @@ import {
   Wallet,
   Wrench,
   X,
-  AlertCircle,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import { getRoutePath } from '../lib/routes.ts';
@@ -53,9 +59,11 @@ interface LayoutProps {
   onOpenCustomInstructions?: () => void;
   onOpenAssistant?: () => void;
   firebaseUser?: User | null;
+  adminSession?: { email: string; displayName: string; role: string } | null;
   hasWorkspaceToken?: boolean;
   onGoogleSignIn?: () => void;
   onGoogleSignOut?: () => void;
+  onAppSignOut?: () => void;
   authBusy?: boolean;
   organizationName: string;
   fiscalPeriod: string;
@@ -153,9 +161,11 @@ export const Layout: React.FC<LayoutProps> = ({
   onOpenCustomInstructions,
   onOpenAssistant,
   firebaseUser = null,
+  adminSession = null,
   hasWorkspaceToken = false,
   onGoogleSignIn,
   onGoogleSignOut,
+  onAppSignOut,
   authBusy = false,
   organizationName,
   fiscalPeriod,
@@ -170,6 +180,14 @@ export const Layout: React.FC<LayoutProps> = ({
   children,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(true);
+  const asideRef = useRef<HTMLElement | null>(null);
+  const toggleBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [clockLabel, setClockLabel] = useState(() =>
+    new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+  );
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     'Master Data': true,
     'Supply Chain': true,
@@ -180,6 +198,41 @@ export const Layout: React.FC<LayoutProps> = ({
     'Audit & Governance': true,
   });
   const [hoveredTooltip, setHoveredTooltip] = useState<SidebarTooltipState | null>(null);
+
+  useEffect(() => {
+    if (sidebarCollapsed) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (asideRef.current?.contains(target)) return;
+      if (toggleBtnRef.current?.contains(target)) return;
+      setSidebarCollapsed(true);
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setClockLabel(
+        new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+      );
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen((prev) => !prev);
+      } else if (e.key === 'Escape') {
+        setSearchOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const toggleGroup = (label: string) => {
     setExpandedGroups((prev) => ({
@@ -551,6 +604,7 @@ export const Layout: React.FC<LayoutProps> = ({
   const handleSelect = (route: ActiveRoute) => {
     setHoveredTooltip(null);
     onNavigate(route);
+    setSidebarCollapsed(true);
     setMobileMenuOpen(false);
   };
 
@@ -572,7 +626,54 @@ export const Layout: React.FC<LayoutProps> = ({
     );
   };
 
-  const renderNavItem = (item: NavItem, inGroupedCard: boolean) => {
+  const GROUP_ICON_TONES: Record<string, string> = {
+    Overview: 'text-sky-400',
+    'Master Data': 'text-cyan-400',
+    'Supply Chain': 'text-amber-400',
+    'Sales & Service': 'text-emerald-400',
+    'Voucher Management': 'text-rose-400',
+    'General Ledger': 'text-indigo-400',
+    'Financial Reports': 'text-blue-400',
+    'Audit & Governance': 'text-amber-300',
+  };
+
+  const allNavItems = useMemo(
+    () =>
+      navGroups.flatMap((group) =>
+        group.items.map((item) => ({
+          ...item,
+          groupLabel: group.label,
+        }))
+      ),
+    [unpostedCount, pendingSyncCount, pendingApprovalCount]
+  );
+
+  const filteredSearchItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return allNavItems.slice(0, 12);
+    return allNavItems
+      .filter(
+        (item) =>
+          item.label.toLowerCase().includes(q) ||
+          item.description.toLowerCase().includes(q) ||
+          item.groupLabel.toLowerCase().includes(q)
+      )
+      .slice(0, 14);
+  }, [allNavItems, searchQuery]);
+
+  const userDisplayName =
+    firebaseUser?.displayName ||
+    adminSession?.displayName ||
+    firebaseUser?.email?.split('@')[0] ||
+    adminSession?.email?.split('@')[0] ||
+    organizationName;
+  const userAvatarInitial = (userDisplayName || 'A').trim().charAt(0).toUpperCase();
+
+  const renderNavItem = (
+    item: NavItem,
+    iconToneClass: string,
+    collapsed: boolean
+  ) => {
     const Icon = item.icon;
     const isActive = activeRoute === item.route;
     const tooltipId = `sidebar-tooltip-${item.route}`;
@@ -596,24 +697,36 @@ export const Layout: React.FC<LayoutProps> = ({
           onBlur={() => handleHideTooltip(item.route)}
           aria-current={isActive ? 'page' : undefined}
           aria-describedby={isTooltipActive ? tooltipId : undefined}
-          className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all whitespace-nowrap cursor-pointer group ${
+          title={collapsed ? item.label : undefined}
+          className={`flex items-center rounded-xl text-xs font-medium transition-all whitespace-nowrap cursor-pointer group ${
+            collapsed
+              ? 'justify-center w-11 h-10 mx-auto px-0'
+              : 'w-full justify-between gap-2 px-3 py-2'
+          } ${
             isActive
-              ? 'bg-blue-600 text-white shadow-sm font-semibold'
-              : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
+              ? 'bg-[#2563EB] text-white shadow-md shadow-blue-600/30 font-semibold'
+              : 'text-slate-300/90 hover:text-white hover:bg-white/[0.06]'
           }`}
         >
-          <span className="flex items-center gap-2.5 min-w-0 truncate">
+          <span
+            className={`flex items-center min-w-0 ${
+              collapsed ? 'justify-center relative' : 'gap-2.5 truncate'
+            }`}
+          >
             <Icon
               className={`w-4 h-4 shrink-0 transition-colors ${
-                isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'
+                isActive ? 'text-white' : `${iconToneClass} group-hover:text-white`
               }`}
             />
-            <span className="truncate">{item.label}</span>
+            {!collapsed && <span className="truncate">{item.label}</span>}
+            {collapsed && item.count !== undefined && (
+              <span className="absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-rose-400 ring-2 ring-[#0E1525]" />
+            )}
           </span>
-          {item.count !== undefined && (
+          {!collapsed && item.count !== undefined && (
             <span
               className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono tabular-nums shrink-0 font-medium ${
-                isActive ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-300'
+                isActive ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-200'
               }`}
             >
               {item.count}
@@ -624,45 +737,72 @@ export const Layout: React.FC<LayoutProps> = ({
     );
   };
 
-  const sidebarContent = (
-    <div className="flex h-full flex-col bg-slate-900 text-slate-200 border-r border-slate-800">
-      {/* Brand Header */}
-      <div className="h-16 px-5 border-b border-slate-800/80 flex items-center justify-between shrink-0">
-        <a
-          href={getRoutePath('dashboard')}
-          onClick={(e) => {
-            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
-              return;
+  const buildSidebarContent = (collapsed: boolean, isMobile = false) => (
+    <div className="flex h-full flex-col bg-[#0E1525] text-slate-200 border-r border-slate-800/80 select-none">
+      {/* Brand Header (Click logo to open / close sidebar) */}
+      <div
+        className={`h-14 border-b border-slate-800/80 flex items-center shrink-0 ${
+          collapsed ? 'justify-center px-2' : 'justify-between px-4'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            setHoveredTooltip(null);
+            if (isMobile) {
+              setMobileMenuOpen(false);
+            } else {
+              setSidebarCollapsed((prev) => !prev);
             }
-            e.preventDefault();
-            handleSelect('dashboard');
           }}
-          className="flex items-center gap-3 text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+          aria-expanded={!collapsed}
+          title={collapsed ? 'Click AT logo to open menu' : 'Click AT logo to close menu'}
+          className={`flex items-center text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg cursor-pointer hover:opacity-95 transition-opacity ${
+            collapsed ? 'justify-center' : 'gap-2.5 w-full'
+          }`}
         >
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-md shadow-blue-500/20 font-extrabold text-base shrink-0">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#2563EB] to-indigo-500 flex items-center justify-center text-white shadow-md shadow-blue-600/30 font-extrabold text-sm shrink-0">
             AT
           </div>
-          <div className="min-w-0">
-            <div className="text-sm font-bold text-white tracking-tight flex items-center gap-1.5 whitespace-nowrap truncate">
-              ATCL ERP
+          {!collapsed && (
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-white tracking-tight flex items-center gap-1.5 whitespace-nowrap truncate">
+                ATCL ERP
+              </div>
+              <div className="text-[9px] text-slate-400 font-semibold tracking-[0.15em] uppercase whitespace-nowrap truncate">
+                ENTERPRISE PLATFORM
+              </div>
             </div>
-            <div className="text-[10px] text-slate-400 font-medium tracking-wider uppercase whitespace-nowrap truncate">
-              Trading • Import • Service
-            </div>
-          </div>
-        </a>
+          )}
+        </button>
       </div>
 
       {/* Navigation */}
       <nav
         onScroll={() => setHoveredTooltip(null)}
         onMouseLeave={() => setHoveredTooltip(null)}
-        className="flex-1 overflow-y-auto ledger-scroll px-3 py-4 space-y-4"
+        className={`flex-1 overflow-y-auto sidebar-scroll py-3 ${
+          collapsed ? 'px-1.5 space-y-2.5' : 'px-3 space-y-4'
+        }`}
       >
-        {navGroups.map((group) => {
+        {navGroups.map((group, groupIdx) => {
           const isGroupedSection = group.label !== 'Overview';
-          const isExpanded = expandedGroups[group.label] ?? true;
+          const isExpanded = collapsed ? true : expandedGroups[group.label] ?? true;
           const hasActiveItem = group.items.some((item) => item.route === activeRoute);
+          const iconToneClass = GROUP_ICON_TONES[group.label] || 'text-slate-400';
+
+          if (collapsed) {
+            return (
+              <div
+                key={group.label}
+                className={groupIdx > 0 ? 'border-t border-slate-800/70 pt-2.5' : ''}
+              >
+                <ul className="space-y-1">
+                  {group.items.map((item) => renderNavItem(item, iconToneClass, true))}
+                </ul>
+              </div>
+            );
+          }
 
           if (isGroupedSection) {
             return (
@@ -671,20 +811,20 @@ export const Layout: React.FC<LayoutProps> = ({
                   type="button"
                   onClick={() => toggleGroup(group.label)}
                   aria-expanded={isExpanded}
-                  className="w-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 flex items-center justify-between transition-colors group cursor-pointer"
+                  className="w-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500 hover:text-slate-300 flex items-center justify-between transition-colors group cursor-pointer"
                 >
                   <span className={!isExpanded && hasActiveItem ? 'text-blue-400' : ''}>
                     {group.label}
                   </span>
                   {isExpanded ? (
-                    <ChevronDown className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300" />
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-300" />
                   ) : (
-                    <ChevronRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300" />
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-300" />
                   )}
                 </button>
                 {isExpanded && (
-                  <ul className="space-y-0.5 pl-1">
-                    {group.items.map((item) => renderNavItem(item, true))}
+                  <ul className="space-y-0.5">
+                    {group.items.map((item) => renderNavItem(item, iconToneClass, false))}
                   </ul>
                 )}
               </div>
@@ -693,35 +833,85 @@ export const Layout: React.FC<LayoutProps> = ({
 
           return (
             <div key={group.label} className="space-y-1">
-              <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                {group.label}
+              <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                MAIN MENU
               </div>
-              <ul className="space-y-0.5 pl-1">
-                {group.items.map((item) => renderNavItem(item, false))}
+              <ul className="space-y-0.5">
+                {group.items.map((item) => renderNavItem(item, iconToneClass, false))}
               </ul>
             </div>
           );
         })}
       </nav>
 
-      {/* Organization Footer */}
-      <div className="p-3 border-t border-slate-800/80 bg-slate-950/40 text-[11px] text-slate-400">
-        <div className="flex items-center justify-between font-mono text-[10px] text-slate-300">
-          <span className="truncate">{fiscalPeriod}</span>
-          <span className="shrink-0">{currencyCode}</span>
-        </div>
-        <div className="mt-1 text-[10px] text-slate-400 truncate">
-          {organizationName}
-        </div>
+      {/* Organization & User Footer */}
+      <div
+        className={`border-t border-slate-800/80 bg-[#0A101D] ${
+          collapsed ? 'p-2.5 flex flex-col items-center gap-2' : 'p-3'
+        }`}
+      >
+        {collapsed ? (
+          <>
+            <div
+              title={`${userDisplayName} · ${organizationName} (${fiscalPeriod})`}
+              className="w-8 h-8 rounded-full bg-[#2563EB] text-white font-bold text-xs flex items-center justify-center shadow-sm"
+            >
+              {userAvatarInitial}
+            </div>
+            {(onAppSignOut || onGoogleSignOut) && (
+              <button
+                type="button"
+                onClick={onAppSignOut || onGoogleSignOut}
+                disabled={authBusy}
+                title="Log out"
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-rose-300 hover:text-rose-200 hover:bg-rose-950/50 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-full bg-[#2563EB] text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-sm">
+                {userAvatarInitial}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-semibold text-white truncate">
+                  {userDisplayName}
+                </div>
+                <div className="text-[10px] font-mono text-slate-400 truncate">
+                  {adminSession ? `${adminSession.role} · ${adminSession.email}` : `${fiscalPeriod} · ${currencyCode}`}
+                </div>
+              </div>
+            </div>
+            {(onAppSignOut || onGoogleSignOut) && (
+              <button
+                type="button"
+                onClick={onAppSignOut || onGoogleSignOut}
+                disabled={authBusy}
+                className="mt-2.5 w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg text-xs font-semibold text-rose-300 bg-rose-950/35 hover:bg-rose-950/60 border border-rose-500/20 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Log Out</span>
+              </button>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
 
   return (
-    <div className="min-h-screen flex bg-slate-50 text-slate-900">
+    <div className="min-h-screen flex bg-[#F4F6FB] text-slate-900">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:block w-64 shrink-0 sticky top-0 h-screen">
-        {sidebarContent}
+      <aside
+        ref={asideRef}
+        className={`hidden lg:block shrink-0 sticky top-0 h-screen transition-[width] duration-200 ${
+          sidebarCollapsed ? 'w-[68px]' : 'w-64'
+        }`}
+      >
+        {buildSidebarContent(sidebarCollapsed, false)}
       </aside>
 
       {/* Floating Sidebar Navigation Tooltip (fixed outside overflow-y-auto nav to prevent clipping) */}
@@ -730,11 +920,11 @@ export const Layout: React.FC<LayoutProps> = ({
           id={hoveredTooltip.id}
           role="tooltip"
           style={{ top: hoveredTooltip.top, left: hoveredTooltip.left }}
-          className="hidden lg:block fixed z-50 -translate-y-1/2 pointer-events-none w-60 rounded-lg bg-slate-900 text-white border border-slate-700/80 shadow-lg px-3 py-2"
+          className="hidden lg:block fixed z-50 -translate-y-1/2 pointer-events-none w-60 rounded-xl bg-[#0E1525] text-white border border-slate-700/80 shadow-xl px-3 py-2"
         >
           <span
             aria-hidden="true"
-            className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45 bg-slate-900 border-l border-b border-slate-700/80"
+            className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rotate-45 bg-[#0E1525] border-l border-b border-slate-700/80"
           />
           <div className="text-xs font-semibold text-white tracking-tight">
             {hoveredTooltip.label}
@@ -749,55 +939,74 @@ export const Layout: React.FC<LayoutProps> = ({
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 lg:hidden flex">
           <div
-            className="fixed inset-0 bg-slate-900/40"
+            className="fixed inset-0 bg-slate-950/50 backdrop-blur-[1px]"
             onClick={() => setMobileMenuOpen(false)}
           />
-          <div className="relative w-64 max-w-[80vw] h-full z-10">
+          <div className="relative w-64 max-w-[82vw] h-full z-10">
             <button
               onClick={() => setMobileMenuOpen(false)}
               aria-label="Close navigation"
-              className="absolute top-4 right-4 p-1.5 text-slate-500 hover:text-slate-900 rounded"
+              className="absolute top-3.5 right-3 p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
-            {sidebarContent}
+            {buildSidebarContent(false, true)}
           </div>
         </div>
       )}
 
       {/* Main Content Shell */}
       <div className="flex-1 min-w-0 flex flex-col erp-shell-bg">
-        {/* Top Bar Contract: Breadcrumb Left + Action Cluster Right */}
-        <header className="sticky top-0 z-30 h-16 bg-white/95 backdrop-blur-md dark:bg-slate-900/95 border-b border-slate-200/90 dark:border-slate-800 px-4 sm:px-6 flex items-center justify-between gap-4 erp-shell-surface">
-          <div className="flex items-center gap-3 min-w-0">
+        {/* Top Bar Contract: Collapse + Breadcrumb Left + Chips, Search, Clock, Auth Right */}
+        <header className="sticky top-0 z-30 h-14 bg-white/95 backdrop-blur-md dark:bg-slate-900/95 border-b border-[#E5E9F2] dark:border-slate-800 px-3 sm:px-5 flex items-center justify-between gap-3 erp-shell-surface">
+          <div className="flex items-center gap-2.5 min-w-0">
             <button
               onClick={() => setMobileMenuOpen(true)}
               aria-label="Open navigation"
-              className="lg:hidden p-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors"
+              className="lg:hidden p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
             >
-              <Menu className="w-5 h-5" />
+              <Menu className="w-4 h-4" />
             </button>
-            <div className="min-w-0">
-              <div className="text-[11px] font-medium text-slate-600 dark:text-slate-400 flex items-center gap-1.5 truncate">
-                <span>ATCL</span>
-                <span className="text-slate-400">/</span>
-                <span>{routeMeta.section}</span>
-                {activeRoute === 'registers' && selectedRegisterCode && (
-                  <>
-                    <span className="text-slate-400">/</span>
-                    <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">
-                      GL {selectedRegisterCode}
-                    </span>
-                  </>
-                )}
-              </div>
-              <h1 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight truncate">
+            <button
+              ref={toggleBtnRef}
+              type="button"
+              onClick={() => setSidebarCollapsed((prev) => !prev)}
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={sidebarCollapsed ? 'Expand navigation sidebar' : 'Collapse navigation sidebar'}
+              className="hidden lg:inline-flex p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-colors cursor-pointer"
+            >
+              {sidebarCollapsed ? (
+                <PanelLeftOpen className="w-4 h-4" />
+              ) : (
+                <PanelLeftClose className="w-4 h-4" />
+              )}
+            </button>
+            <div className="flex items-center gap-1.5 text-xs min-w-0 truncate">
+              <button
+                type="button"
+                onClick={() => handleSelect('dashboard')}
+                className="inline-flex items-center gap-1 text-slate-500 hover:text-[#2563EB] transition-colors cursor-pointer shrink-0"
+              >
+                <Home className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline font-medium">Home</span>
+              </button>
+              <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+              <span className="hidden md:inline text-slate-500 font-medium truncate">
+                {routeMeta.section}
+              </span>
+              <ChevronRight className="hidden md:inline w-3.5 h-3.5 text-slate-300 shrink-0" />
+              <h1 className="font-bold text-slate-900 dark:text-slate-100 tracking-tight truncate">
                 {routeMeta.title}
               </h1>
+              {activeRoute === 'registers' && selectedRegisterCode && (
+                <span className="ml-1 px-2 py-0.5 rounded-md bg-blue-50 text-[#2563EB] border border-blue-200/80 font-mono text-[11px] tabular-nums shrink-0">
+                  GL {selectedRegisterCode}
+                </span>
+              )}
             </div>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             {syncStatus && (
               <span
                 title={
@@ -807,60 +1016,185 @@ export const Layout: React.FC<LayoutProps> = ({
                       ? `Firestore Cloud Synced (${syncStatus.lastCloudSyncAt || 'Live'})`
                       : 'Browser Local Cache (Sign in to sync Firestore Cloud)'
                 }
-                className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border ${
+                className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${
                   syncStatus.mode === 'cloud'
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200/80'
+                    : 'bg-amber-50 text-amber-700 border-amber-200/80'
                 }`}
               >
-                <Cloud className="w-3 h-3" />
+                <Cloud className="w-3.5 h-3.5" />
                 <span>{syncStatus.mode === 'cloud' ? 'Cloud Synced' : 'Local Cache'}</span>
               </span>
-            )}
-            {firebaseUser && onGoogleSignIn && onGoogleSignOut ? (
-              <GoogleUserBadge
-                user={firebaseUser}
-                hasWorkspaceToken={hasWorkspaceToken}
-                onReconnectToken={onGoogleSignIn}
-                onSignOut={onGoogleSignOut}
-                busy={authBusy}
-              />
-            ) : (
-              onGoogleSignIn && (
-                <GoogleSignInButton onClick={onGoogleSignIn} disabled={authBusy} />
-              )
-            )}
-            {onOpenCustomInstructions && (
-              <button
-                type="button"
-                onClick={onOpenCustomInstructions}
-                title="Custom Instructions: Style, Models & Knowledge"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:text-slate-900 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                <span className="hidden md:inline">Custom Instructions</span>
-              </button>
             )}
             {onOpenAssistant && (
               <button
                 type="button"
                 onClick={onOpenAssistant}
                 title="Open ATCL Executive ERP Assistant"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:text-slate-900 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer"
+                className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50/90 border border-indigo-200/80 hover:bg-indigo-100/80 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
-                <MessageSquareText className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                <span className="hidden sm:inline">ERP Assistant</span>
+                <MessageSquareText className="w-3.5 h-3.5 text-indigo-600" />
+                <span>ERP Assistant</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('');
+                setSearchOpen(true);
+              }}
+              title="Jump to any ERP module (Ctrl+K)"
+              className="hidden xl:inline-flex items-center gap-2 px-3 py-1.5 text-xs text-slate-500 bg-slate-100/80 hover:bg-slate-200/70 border border-slate-200/90 rounded-full transition-colors whitespace-nowrap cursor-pointer"
+            >
+              <Search className="w-3.5 h-3.5 text-slate-400" />
+              <span>Global search...</span>
+              <kbd className="px-1.5 py-0.5 text-[10px] font-mono font-semibold text-slate-500 bg-white border border-slate-200 rounded">
+                Ctrl+K
+              </kbd>
+            </button>
+            <div
+              title="Current local system time"
+              className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-50 border border-slate-200/80 text-[11px] font-mono font-medium text-slate-600 tabular-nums shrink-0"
+            >
+              <Clock className="w-3.5 h-3.5 text-slate-400" />
+              <span>{clockLabel}</span>
+            </div>
+            {onOpenCustomInstructions && (
+              <button
+                type="button"
+                onClick={onOpenCustomInstructions}
+                title="Custom Instructions: Style, Models & Knowledge"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:text-slate-900 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 text-[#2563EB] dark:text-blue-400" />
+                <span className="hidden 2xl:inline">Preferences</span>
               </button>
             )}
             <button
               onClick={onOpenNewVoucher}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs transition-all duration-150 whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-[#2563EB] hover:bg-blue-700 rounded-lg shadow-xs transition-all duration-150 whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
-              <span>New Journal Voucher</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">New Voucher</span>
             </button>
+            {firebaseUser && onGoogleSignIn && (onAppSignOut || onGoogleSignOut) ? (
+              <GoogleUserBadge
+                user={firebaseUser}
+                hasWorkspaceToken={hasWorkspaceToken}
+                onReconnectToken={onGoogleSignIn}
+                onSignOut={onAppSignOut || onGoogleSignOut!}
+                busy={authBusy}
+              />
+            ) : adminSession ? (
+              <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-slate-200 bg-slate-50 text-xs shrink-0">
+                <span className="w-6 h-6 rounded-full bg-[#2563EB] text-white flex items-center justify-center text-[10px] font-bold shrink-0">
+                  {adminSession.displayName.slice(0, 1).toUpperCase()}
+                </span>
+                <div className="hidden xl:flex flex-col leading-tight min-w-0">
+                  <span className="font-semibold text-slate-800 truncate max-w-[120px]">
+                    {adminSession.displayName}
+                  </span>
+                  <span className="text-[10px] text-slate-500">
+                    {adminSession.role}
+                  </span>
+                </div>
+                {onAppSignOut && (
+                  <button
+                    type="button"
+                    onClick={onAppSignOut}
+                    disabled={authBusy}
+                    title="Log out"
+                    className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer disabled:opacity-50"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            ) : (
+              onGoogleSignIn && (
+                <GoogleSignInButton onClick={onGoogleSignIn} disabled={authBusy} />
+              )
+            )}
           </div>
         </header>
+
+        {/* Global Quick-Jump Search Modal (Ctrl+K) */}
+        {searchOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 bg-slate-950/45 backdrop-blur-[2px] no-print"
+            onClick={() => setSearchOpen(false)}
+          >
+            <div
+              className="w-full max-w-lg bg-white rounded-2xl border border-[#E5E9F2] shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-2.5 px-4 py-3 border-b border-slate-200">
+                <Search className="w-4 h-4 text-[#2563EB] shrink-0" />
+                <input
+                  type="text"
+                  autoFocus
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && filteredSearchItems[0]) {
+                      handleSelect(filteredSearchItems[0].route);
+                      setSearchOpen(false);
+                    }
+                  }}
+                  placeholder="Jump to module, report, voucher, or ledger..."
+                  className="flex-1 text-sm text-slate-900 placeholder-slate-400 focus:outline-none bg-transparent"
+                />
+                <button
+                  type="button"
+                  onClick={() => setSearchOpen(false)}
+                  className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-100 text-slate-500 hover:bg-slate-200 cursor-pointer"
+                >
+                  ESC
+                </button>
+              </div>
+              <ul className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                {filteredSearchItems.length === 0 ? (
+                  <li className="px-4 py-6 text-center text-xs text-slate-500">
+                    No matching ERP modules found.
+                  </li>
+                ) : (
+                  filteredSearchItems.map((item) => {
+                    const ItemIcon = item.icon;
+                    return (
+                      <li key={item.route}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleSelect(item.route);
+                            setSearchOpen(false);
+                          }}
+                          className="w-full px-4 py-2.5 flex items-center justify-between gap-3 text-left hover:bg-blue-50/70 transition-colors cursor-pointer"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+                              <ItemIcon className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-xs font-semibold text-slate-900 truncate">
+                                {item.label}
+                              </div>
+                              <div className="text-[11px] text-slate-500 truncate">
+                                {item.description}
+                              </div>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 shrink-0">
+                            {item.groupLabel}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })
+                )}
+              </ul>
+            </div>
+          </div>
+        )}
 
         {/* Floating Toast Notification */}
         {toast && (

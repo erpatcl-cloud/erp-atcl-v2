@@ -45,6 +45,14 @@ import { TemplateStudioPage } from './components/TemplateStudioPage.tsx';
 import { WorkspaceHubPage } from './components/WorkspaceHubPage.tsx';
 import { CustomInstructionsDrawer } from './components/CustomInstructionsDrawer.tsx';
 import { ErpAssistantDrawer } from './components/ErpAssistantDrawer.tsx';
+import { LoginPage } from './components/LoginPage.tsx';
+import {
+  authenticateAdminCredentials,
+  clearAdminSession,
+  loadAdminSession,
+  saveAdminSession,
+  type AdminSession,
+} from './lib/adminAuth.ts';
 import { api } from './lib/api.ts';
 import { auth, getAccessToken } from './lib/firebase.ts';
 import { pushMasterWorkbook } from './lib/googleMasterWorkbookSync.ts';
@@ -105,6 +113,7 @@ export default function App() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [lastAuditResult, setLastAuditResult] = useState<ReconciliationResult | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [adminSession, setAdminSession] = useState<AdminSession | null>(() => loadAdminSession());
   const [userRole, setUserRole] = useState<ErpUserRole>('viewer');
   const [syncStatus, setSyncStatus] = useState<PersistenceSyncStatus>(() =>
     getPersistenceSyncStatus()
@@ -183,19 +192,42 @@ export default function App() {
     }
   }, [notify, state?.config.organizationName]);
 
-  const handleGoogleSignOut = useCallback(async () => {
+  const effectiveRole: ErpUserRole = adminSession ? 'admin' : userRole;
+  const isAuthenticated = Boolean(adminSession);
+
+  const handleAdminSignIn = useCallback(
+    (email: string, password: string) => {
+      const session = authenticateAdminCredentials(email, password);
+      if (!session) {
+        return { ok: false, error: 'Invalid admin email or password.' };
+      }
+      saveAdminSession(session);
+      setAdminSession(session);
+      notify('success', `Signed in as ${session.email} (Admin).`);
+      return { ok: true };
+    },
+    [notify]
+  );
+
+  const handleAppSignOut = useCallback(async () => {
     setAuthBusy(true);
     try {
-      await logout();
-      setFirebaseUser(null);
-      setWorkspaceToken(null);
-      notify('info', 'Signed out of Google Workspace & Firebase.');
+      clearAdminSession();
+      setAdminSession(null);
+      if (firebaseUser) {
+        await logout();
+        setFirebaseUser(null);
+        setWorkspaceToken(null);
+      }
+      notify('info', 'Signed out of ATCL ERP.');
     } catch (err) {
       notify('error', err instanceof Error ? err.message : 'Sign-out failed.');
     } finally {
       setAuthBusy(false);
     }
-  }, [notify]);
+  }, [firebaseUser, notify]);
+
+  const handleGoogleSignOut = handleAppSignOut;
 
   const fetchState = useCallback(async () => {
     try {
@@ -993,6 +1025,16 @@ export default function App() {
     notify('info', 'Deleted template from Template Studio.');
   };
 
+  if (!isAuthenticated) {
+    return (
+      <LoginPage
+        onAdminSignIn={handleAdminSignIn}
+        onGoogleSignIn={handleGoogleSignIn}
+        authBusy={authBusy}
+      />
+    );
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC]">
@@ -1031,9 +1073,11 @@ export default function App() {
         onOpenCustomInstructions={() => setShowCustomInstructionsDrawer(true)}
         onOpenAssistant={() => setShowAssistantDrawer(true)}
         firebaseUser={firebaseUser}
+        adminSession={adminSession}
         hasWorkspaceToken={Boolean(workspaceToken)}
         onGoogleSignIn={() => void handleGoogleSignIn()}
         onGoogleSignOut={() => void handleGoogleSignOut()}
+        onAppSignOut={() => void handleAppSignOut()}
         authBusy={authBusy}
         organizationName={state.config.organizationName}
         fiscalPeriod={state.config.fiscalPeriod}
@@ -1063,7 +1107,7 @@ export default function App() {
           <ProductsItemsPage
             state={state}
             busyAction={busyAction}
-            isAdmin={userRole === 'admin'}
+            isAdmin={effectiveRole === 'admin'}
             onOpenRegister={handleOpenRegister}
             onCreateProduct={handleCreateProduct}
             onUpdateProduct={handleUpdateProduct}
@@ -1076,7 +1120,7 @@ export default function App() {
           <Customers360Page
             state={state}
             busyAction={busyAction}
-            currentUserEmail={firebaseUser?.email || 'system@atcl.com'}
+            currentUserEmail={firebaseUser?.email || adminSession?.email || 'erpatcl@gmail.com'}
             onOpenRegister={handleOpenRegister}
             onOpenNewVoucher={() => setShowVoucherComposer(true)}
             onCreateCustomer={handleCreateCustomer}

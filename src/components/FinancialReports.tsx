@@ -2,12 +2,23 @@ import React, { useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowUpRight,
+  BarChart3,
+  BookOpen,
   Calendar,
+  CalendarRange,
   CheckCircle2,
   ChevronRight,
+  DollarSign,
   Download,
+  FileSpreadsheet,
+  FileText,
+  Landmark,
   Printer,
   RotateCcw,
+  Scale,
+  Search,
+  TrendingUp,
+  Wallet,
 } from 'lucide-react';
 import {
   computeBalanceSheet,
@@ -27,6 +38,7 @@ import {
   type ReportDrilldownTarget,
 } from './ReportDrilldownDrawer.tsx';
 import { AiReportInsightsCard } from './AiReportInsightsCard.tsx';
+import { MetricCard } from './common/MetricCard.tsx';
 
 interface FinancialReportsProps {
   state: LedgerState;
@@ -42,24 +54,21 @@ interface FinancialReportsProps {
   onOpenRegister: (code: string) => void;
 }
 
+type ReportTabRoute = FinancialReportsProps['activeRoute'];
+
 const REPORT_TABS: Array<{
-  route:
-    | 'reports-summary'
-    | 'reports-trial-balance'
-    | 'reports-income'
-    | 'reports-balance-sheet'
-    | 'reports-cash-flow'
-    | 'reports-equity-changes'
-    | 'reports-monthly';
+  route: ReportTabRoute;
   label: string;
+  group: 'FINANCIAL' | 'ANALYTICS';
+  icon: React.ComponentType<{ className?: string }>;
 }> = [
-  { route: 'reports-summary', label: 'GL Summary' },
-  { route: 'reports-trial-balance', label: 'Trial Balance' },
-  { route: 'reports-income', label: 'Income Statement' },
-  { route: 'reports-balance-sheet', label: 'Balance Sheet' },
-  { route: 'reports-cash-flow', label: 'Cash Flow' },
-  { route: 'reports-equity-changes', label: 'Changes in Equity' },
-  { route: 'reports-monthly', label: 'Monthly Matrix' },
+  { route: 'reports-income', label: 'Income Statement', group: 'FINANCIAL', icon: FileText },
+  { route: 'reports-balance-sheet', label: 'Balance Sheet', group: 'FINANCIAL', icon: Landmark },
+  { route: 'reports-cash-flow', label: 'Cash Flow', group: 'FINANCIAL', icon: Wallet },
+  { route: 'reports-trial-balance', label: 'Trial Balance', group: 'FINANCIAL', icon: Scale },
+  { route: 'reports-summary', label: 'General Ledger', group: 'FINANCIAL', icon: FileSpreadsheet },
+  { route: 'reports-equity-changes', label: 'Changes in Equity', group: 'ANALYTICS', icon: BookOpen },
+  { route: 'reports-monthly', label: 'Monthly Matrix', group: 'ANALYTICS', icon: CalendarRange },
 ];
 
 export const FinancialReports: React.FC<FinancialReportsProps> = ({
@@ -76,6 +85,7 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({
   const [periodPreset, setPeriodPreset] = useState<'all' | 'this-month' | 'last-month' | 'this-quarter' | 'ytd' | 'custom'>('all');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [reportSearch, setReportSearch] = useState('');
 
   const applyPeriodPreset = (preset: 'all' | 'this-month' | 'last-month' | 'this-quarter' | 'ytd') => {
     setPeriodPreset(preset);
@@ -415,54 +425,133 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({
     }
   };
 
+  const activeTabMeta = REPORT_TABS.find((t) => t.route === activeRoute) || REPORT_TABS[0];
+  const arClosing = useMemo(
+    () => glSummary.find((r) => r.code === '1120')?.closingBalance ?? 0,
+    [glSummary]
+  );
+  const apClosing = useMemo(
+    () => glSummary.find((r) => r.code === '2080')?.closingBalance ?? 0,
+    [glSummary]
+  );
+  const totalExposure = Math.abs(arClosing) + Math.abs(apClosing);
+  const arSharePct =
+    totalExposure > 0
+      ? Math.min(100, Math.max(0, (Math.abs(arClosing) / totalExposure) * 100))
+      : 50;
+
+  const filteredNavigatorTabs = useMemo(() => {
+    const q = reportSearch.trim().toLowerCase();
+    if (!q) return REPORT_TABS;
+    return REPORT_TABS.filter((tab) => tab.label.toLowerCase().includes(q));
+  }, [reportSearch]);
+
   return (
-    <div className="space-y-6">
-      {/* Header + Report Switcher */}
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 no-print">
-        <div className="inline-flex items-center p-1 bg-slate-200/70 rounded-lg overflow-x-auto max-w-full">
-          {REPORT_TABS.map((tab) => (
+    <div className="flex flex-col xl:flex-row gap-5 items-start">
+      {/* Left White Report Navigator (matches reference Cockpit sidebar) */}
+      <aside className="w-full xl:w-60 shrink-0 bg-white rounded-2xl border border-[#E5E9F2] p-3.5 shadow-xs xl:sticky xl:top-20 no-print">
+        <div className="relative mb-3">
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={reportSearch}
+            onChange={(e) => setReportSearch(e.target.value)}
+            placeholder="Search reports..."
+            className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#2563EB] focus:bg-white transition-colors"
+          />
+        </div>
+
+        <div className="space-y-3">
+          {(['FINANCIAL', 'ANALYTICS'] as const).map((groupName) => {
+            const groupTabs = filteredNavigatorTabs.filter((t) => t.group === groupName);
+            if (groupTabs.length === 0) return null;
+            return (
+              <div key={groupName}>
+                <div className="px-2.5 pb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                  {groupName}
+                </div>
+                <ul className="space-y-0.5">
+                  {groupTabs.map((tab) => {
+                    const TabIcon = tab.icon;
+                    const isActive = activeRoute === tab.route;
+                    return (
+                      <li key={tab.route}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDrilldownTarget(null);
+                            onNavigate(tab.route);
+                          }}
+                          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-all text-left cursor-pointer border-l-2 ${
+                            isActive
+                              ? 'border-[#2563EB] bg-blue-50/75 text-[#2563EB] font-semibold'
+                              : 'border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'
+                          }`}
+                        >
+                          <TabIcon
+                            className={`w-4 h-4 shrink-0 ${
+                              isActive ? 'text-[#2563EB]' : 'text-slate-400'
+                            }`}
+                          />
+                          <span className="truncate">{tab.label}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+      </aside>
+
+      {/* Right Main Cockpit Workspace */}
+      <div className="flex-1 min-w-0 w-full space-y-5">
+        {/* Indigo-to-Royal-Blue Financial Cockpit Hero Banner */}
+        <div className="cockpit-hero rounded-2xl p-5 sm:p-6 text-white shadow-lg shadow-indigo-950/10 flex flex-col lg:flex-row lg:items-center justify-between gap-4 no-print">
+          <div className="relative z-10 flex items-start sm:items-center gap-4 min-w-0">
+            <div className="w-11 h-11 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center shrink-0 backdrop-blur-xs shadow-inner">
+              <BarChart3 className="w-5 h-5 text-blue-100" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg sm:text-xl font-extrabold tracking-tight text-white">
+                  Financial Cockpit
+                </h2>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-white/15 border border-white/20 text-blue-50 backdrop-blur-xs">
+                  Unified Intelligence
+                </span>
+              </div>
+              <p className="text-xs text-blue-100/90 mt-0.5 truncate">
+                Real-time IFRS financial statements, ledger validation, and variance analytics · {state.config.organizationName}
+              </p>
+              <div className="mt-1.5 text-[10px] font-bold uppercase tracking-wider text-blue-200 flex items-center gap-1.5">
+                <span>VIEW:</span>
+                <span className="text-white">{activeTabMeta.label.toUpperCase()}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="relative z-10 flex flex-wrap items-center gap-2 shrink-0">
             <button
-              key={tab.route}
-              onClick={() => {
-                setDrilldownTarget(null);
-                onNavigate(tab.route);
-              }}
-              className={`px-3.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap cursor-pointer ${
-                activeRoute === tab.route
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
+              onClick={handleExportCurrent}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-white/15 hover:bg-white/25 border border-white/25 rounded-xl backdrop-blur-xs transition-colors whitespace-nowrap cursor-pointer"
             >
-              {tab.label}
+              <Download className="w-3.5 h-3.5" />
+              <span>Export CSV</span>
             </button>
-          ))}
+            <button
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-blue-500/90 hover:bg-blue-500 border border-blue-400/40 rounded-xl shadow-xs transition-colors whitespace-nowrap cursor-pointer"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Print Statement</span>
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={handleExportCurrent}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-md whitespace-nowrap cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span>Export CSV</span>
-          </button>
-          <button
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-md whitespace-nowrap cursor-pointer"
-          >
-            <Printer className="w-3.5 h-3.5 text-slate-500" />
-            <span>Print Statement</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Time Period Filter Bar */}
-      <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs flex flex-col xl:flex-row xl:items-center justify-between gap-3 no-print">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 mr-1">
-            <Calendar className="w-3.5 h-3.5 text-[#2563EB]" />
-            <span>Report Period:</span>
-          </span>
+        {/* Rounded-Full Period Preset Pills */}
+        <div className="flex flex-wrap items-center gap-2 no-print">
           {(
             [
               { id: 'all', label: 'Full Fiscal Year' },
@@ -476,10 +565,10 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({
               key={preset.id}
               type="button"
               onClick={() => applyPeriodPreset(preset.id)}
-              className={`px-2.5 py-1.5 text-xs font-semibold rounded-md border transition-colors cursor-pointer ${
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-full border transition-all cursor-pointer ${
                 periodPreset === preset.id
-                  ? 'bg-[#001F60] text-white border-[#001F60]'
-                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  ? 'bg-[#2563EB] text-white border-[#2563EB] shadow-sm shadow-blue-600/20'
+                  : 'bg-white text-slate-600 border-[#E5E9F2] hover:bg-slate-50 hover:text-slate-900'
               }`}
             >
               {preset.label}
@@ -487,82 +576,178 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 text-xs">
-            <label htmlFor="report-from-date" className="text-slate-500 font-medium">
-              From
-            </label>
-            <input
-              id="report-from-date"
-              type="date"
-              value={fromDate}
-              onChange={(e) => {
-                setFromDate(e.target.value);
-                setPeriodPreset('custom');
-              }}
-              className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
+        {/* Wide From Date / To Date Filter Card */}
+        <div className="bg-white border border-[#E5E9F2] rounded-2xl p-4 shadow-xs no-print">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+            <div>
+              <label
+                htmlFor="report-from-date"
+                className="block text-xs font-semibold text-slate-700 mb-1.5"
+              >
+                From Date
+              </label>
+              <div className="relative">
+                <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  id="report-from-date"
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => {
+                    setFromDate(e.target.value);
+                    setPeriodPreset('custom');
+                  }}
+                  className="w-full pl-9 pr-3 py-2 text-xs font-mono border border-slate-200 rounded-xl bg-white focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label
+                  htmlFor="report-to-date"
+                  className="text-xs font-semibold text-slate-700"
+                >
+                  To Date
+                </label>
+                <div className="flex items-center gap-2">
+                  {(fromDate || toDate) && (
+                    <button
+                      type="button"
+                      onClick={() => applyPeriodPreset('all')}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md cursor-pointer"
+                      title="Reset to Full Fiscal Year"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Reset</span>
+                    </button>
+                  )}
+                  <span className="px-2 py-0.5 rounded-full bg-blue-50 text-[#2563EB] border border-blue-200/80 text-[10px] font-semibold font-mono">
+                    {periodState.postedTransactions.length} entries
+                  </span>
+                </div>
+              </div>
+              <div className="relative">
+                <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  id="report-to-date"
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => {
+                    setToDate(e.target.value);
+                    setPeriodPreset('custom');
+                  }}
+                  className="w-full pl-9 pr-3 py-2 text-xs font-mono border border-slate-200 rounded-xl bg-white focus:outline-none focus:border-[#2563EB]"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 6-Card Pastel KPI Summary Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 no-print">
+          <MetricCard
+            label="Revenue"
+            value={formatBDT(incomeStatement.totalIncome)}
+            subValue={`Net Revenue (${plTxCount} P&L entries)`}
+            tone="emerald"
+            icon={<TrendingUp className="w-4 h-4" />}
+          />
+          <MetricCard
+            label="Net Profit"
+            value={formatBDT(incomeStatement.netProfit)}
+            subValue={`${incomeStatement.netMarginPct.toFixed(1)}% Net Margin`}
+            tone={incomeStatement.netProfit >= 0 ? 'emerald' : 'rose'}
+            icon={<DollarSign className="w-4 h-4" />}
+          />
+          <MetricCard
+            label="Net Cash Change"
+            value={formatBDT(cashFlowStatement.netCashChange)}
+            subValue={`Closing Cash: ${formatBDT(cashFlowStatement.closingCashBalance)}`}
+            tone="emerald"
+            icon={<Wallet className="w-4 h-4" />}
+          />
+          <MetricCard
+            label="AR Outstanding (1120)"
+            value={formatBDT(arClosing)}
+            subValue={`${periodState.customers.length} customers in register`}
+            tone="amber"
+            icon={<ArrowUpRight className="w-4 h-4" />}
+          />
+          <MetricCard
+            label="AP Outstanding (2080)"
+            value={formatBDT(apClosing)}
+            subValue={`${periodState.suppliers.length} suppliers in register`}
+            tone="purple"
+            icon={<Landmark className="w-4 h-4" />}
+          />
+          <MetricCard
+            label="Gross Profit"
+            value={formatBDT(incomeStatement.grossProfit)}
+            subValue={`${incomeStatement.grossMarginPct.toFixed(1)}% GP Margin`}
+            tone="blue"
+            icon={<BarChart3 className="w-4 h-4" />}
+          />
+        </div>
+
+        {/* Outstanding Working Capital Exposure Ratio Bar */}
+        <div className="bg-white border border-[#E5E9F2] rounded-2xl p-4 shadow-xs no-print">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+            <span className="text-xs font-bold text-slate-800">
+              Outstanding Working Capital Exposure
+            </span>
+            <span className="text-[11px] font-medium text-slate-500 font-mono">
+              Ratio: AR / AP
+            </span>
+          </div>
+          <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden flex">
+            <div
+              className="h-full bg-gradient-to-r from-amber-400 to-orange-500 transition-all duration-300"
+              style={{ width: `${arSharePct}%` }}
+              title={`Accounts Receivable (1120): ${formatBDT(arClosing)}`}
+            />
+            <div
+              className="h-full bg-gradient-to-r from-violet-400 to-indigo-500 transition-all duration-300"
+              style={{ width: `${100 - arSharePct}%` }}
+              title={`Accounts Payable (2080): ${formatBDT(apClosing)}`}
             />
           </div>
-          <div className="flex items-center gap-1.5 text-xs">
-            <label htmlFor="report-to-date" className="text-slate-500 font-medium">
-              To
-            </label>
-            <input
-              id="report-to-date"
-              type="date"
-              value={toDate}
-              onChange={(e) => {
-                setToDate(e.target.value);
-                setPeriodPreset('custom');
-              }}
-              className="px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded-md bg-white focus:outline-none focus:border-[#2563EB]"
-            />
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] font-medium font-mono">
+            <span className="text-amber-600">
+              AR Receivable (1120): {formatBDT(arClosing)}
+            </span>
+            <span className="text-violet-600">
+              AP Payable (2080): {formatBDT(apClosing)}
+            </span>
           </div>
-          {(fromDate || toDate) && (
-            <button
-              type="button"
-              onClick={() => applyPeriodPreset('all')}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md cursor-pointer"
-              title="Reset to Full Fiscal Year"
-            >
-              <RotateCcw className="w-3 h-3" />
-              <span>Reset</span>
-            </button>
-          )}
-          <span className="px-2.5 py-1 rounded-full bg-blue-50 text-[#001F60] border border-blue-200 text-[11px] font-semibold font-mono">
-            {periodState.postedTransactions.length} entries
-          </span>
         </div>
-      </div>
 
-      {(fromDate || toDate) && (
-        <div className="text-xs font-medium text-slate-600 bg-blue-50/70 border border-blue-200/80 rounded-lg px-3.5 py-2 flex flex-wrap items-center justify-between gap-2">
-          <span>
-            Active Reporting Window:{' '}
-            <strong className="font-mono text-[#001F60]">
-              {fromDate || 'Opening'} → {toDate || 'Latest'}
-            </strong>
-          </span>
-          <span className="text-[11px] text-slate-500">
-            Pre-period activity automatically rolled into Opening Balances.
-          </span>
-        </div>
-      )}
+        {(fromDate || toDate) && (
+          <div className="text-xs font-medium text-slate-600 bg-blue-50/70 border border-blue-200/80 rounded-xl px-3.5 py-2 flex flex-wrap items-center justify-between gap-2">
+            <span>
+              Active Reporting Window:{' '}
+              <strong className="font-mono text-[#001F60]">
+                {fromDate || 'Opening'} → {toDate || 'Latest'}
+              </strong>
+            </span>
+            <span className="text-[11px] text-slate-500">
+              Pre-period activity automatically rolled into Opening Balances.
+            </span>
+          </div>
+        )}
 
-      <AiReportInsightsCard
-        reportScope={
-          activeRoute === 'reports-trial-balance'
-            ? 'trial-balance'
-            : activeRoute === 'reports-income'
-              ? 'income'
-              : activeRoute === 'reports-balance-sheet'
-                ? 'balance-sheet'
-                : activeRoute === 'reports-monthly'
-                  ? 'monthly'
-                  : 'summary'
-        }
-        title="AI Financial Commentary & Variance Analysis"
-      />
+        <AiReportInsightsCard
+          reportScope={
+            activeRoute === 'reports-trial-balance'
+              ? 'trial-balance'
+              : activeRoute === 'reports-income'
+                ? 'income'
+                : activeRoute === 'reports-balance-sheet'
+                  ? 'balance-sheet'
+                  : activeRoute === 'reports-monthly'
+                    ? 'monthly'
+                    : 'summary'
+          }
+          title="AI Financial Commentary & Variance Analysis"
+        />
 
       {/* 1. GL SUMMARY DASHBOARD */}
       {activeRoute === 'reports-summary' && (
@@ -2125,6 +2310,7 @@ export const FinancialReports: React.FC<FinancialReportsProps> = ({
         onOpenRegister={onOpenRegister}
         onNavigateToIncomeStatement={() => onNavigate('reports-income')}
       />
+      </div>
     </div>
   );
 };

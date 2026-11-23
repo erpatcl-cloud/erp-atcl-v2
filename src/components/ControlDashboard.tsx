@@ -174,16 +174,21 @@ export const ControlDashboard: React.FC<ControlDashboardProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Executive Header matching V1 Dashboard Welcome Bar */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-wider text-blue-600 mb-1">
-            {state.config.organizationName.toUpperCase()} · AUTOMATED GENERAL LEDGER ACCOUNT REGISTER SYSTEM
+      {/* Executive Cockpit Hero Banner */}
+      <div className="cockpit-hero rounded-2xl p-5 sm:p-6 text-white shadow-lg shadow-indigo-950/10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="relative z-10 min-w-0">
+          <div className="flex flex-wrap items-center gap-2 mb-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-blue-200">
+              {state.config.organizationName.toUpperCase()} · GENERAL LEDGER CONTROL SYSTEM
+            </span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-white/15 border border-white/20 text-blue-50 backdrop-blur-xs">
+              Control Cockpit
+            </span>
           </div>
-          <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900">
+          <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight text-white">
             Master Financial Control Center & Multi-Register Synchronizer
           </h2>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-blue-100/90">
             <span>Fiscal Period {state.config.fiscalPeriod}</span>
             <span aria-hidden="true">·</span>
             <span>Reporting Currency {state.config.currencyCode} ({state.config.currencySymbol})</span>
@@ -192,12 +197,12 @@ export const ControlDashboard: React.FC<ControlDashboardProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="relative z-10 flex flex-wrap items-center gap-2 shrink-0">
           {counts.postedCount === 0 && (
             <button
               onClick={onLoadSampleTransactions}
               disabled={busyAction !== null}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors whitespace-nowrap disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-white/15 hover:bg-white/25 border border-white/25 rounded-xl backdrop-blur-xs transition-colors whitespace-nowrap disabled:opacity-50 cursor-pointer"
             >
               <Database className="w-4 h-4" />
               <span>Load Sample FY Transactions</span>
@@ -205,9 +210,9 @@ export const ControlDashboard: React.FC<ControlDashboardProps> = ({
           )}
           <button
             onClick={handleExportControlDashboardCSV}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-blue-500/90 hover:bg-blue-500 border border-blue-400/40 rounded-xl shadow-xs transition-colors whitespace-nowrap cursor-pointer"
           >
-            <Download className="w-4 h-4 text-slate-500" />
+            <Download className="w-4 h-4" />
             <span>Export Control CSV</span>
           </button>
         </div>
@@ -505,7 +510,7 @@ export const ControlDashboard: React.FC<ControlDashboardProps> = ({
       </section>
 
       {/* SECTION 3: QUICK NAVIGATION MENU (Exact 8 sheets from Control_Dashboard CSV) */}
-      <section className="bg-white border border-[#001F60] rounded-lg overflow-hidden">
+      <section className="bg-white border border-[#E5E9F2] rounded-2xl shadow-xs overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
           <div>
             <h2 className="text-base font-semibold text-slate-900">

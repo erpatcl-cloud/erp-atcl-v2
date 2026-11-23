@@ -15,10 +15,10 @@
 }
 
 :root {
-  --erp-canvas: #F8FAFC;
+  --erp-canvas: #F4F6FB;
   --erp-surface: #FFFFFF;
   --erp-surface-subtle: #F8FAFC;
-  --erp-border: #E2E8F0;
+  --erp-border: #E5E9F2;
   --erp-text: #0F172A;
   --erp-text-muted: #475569;
   --erp-accent: #2563EB;
@@ -367,4 +367,52 @@
 .gsi-material-button:not(:disabled):hover .gsi-material-button-state {
   background-color: #303030;
   opacity: 0.06;
+}
+
+/* Cockpit Hero Banner & Sidebar Scrollbar */
+.cockpit-hero {
+  background: linear-gradient(110deg, #1E1B4B 0%, #27297C 48%, #2563EB 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.cockpit-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 88% 20%, rgba(96, 165, 250, 0.22), transparent 52%);
+  pointer-events: none;
+}
+
+.sidebar-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 9999px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.35);
+}
+
+html:not(.dark) main table:not(.no-erp-table) thead,
+html:not(.dark) main table:not(.no-erp-table) thead tr,
+html:not(.dark) main table:not(.no-erp-table) thead th {
+  background: linear-gradient(90deg, #1E2952 0%, #223066 100%) !important;
+  border-color: #2B3B75 !important;
+}
+
+html:not(.dark) main table:not(.no-erp-table) tbody td {
+  border-color: #E2E8F0 !important;
+}
+
+html:not(.dark) main table:not(.no-erp-table) tfoot td,
+html:not(.dark) main table:not(.no-erp-table) tfoot th {
+  border-color: #CBD5E1 !important;
 }
