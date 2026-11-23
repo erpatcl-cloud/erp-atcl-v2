@@ -1,0 +1,95 @@
+{
+  "entities": {
+    "UserPublic": {
+      "title": "UserPublic",
+      "description": "Public user identity and ERP governance role without PII.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "photoURL": { "type": "string", "description": "Optional avatar URL" },
+        "role": { "type": "string", "enum": ["admin", "accountant", "viewer"] },
+        "organization": { "type": "string", "description": "Organization designation" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "role", "createdAt", "updatedAt"]
+    },
+    "UserPrivate": {
+      "title": "UserPrivate",
+      "description": "Owner-only private user PII and Workspace metadata.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "workspaceConnected": { "type": "boolean" },
+        "lastLoginAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "workspaceConnected", "lastLoginAt", "updatedAt"]
+    },
+    "ErpSnapshot": {
+      "title": "ErpSnapshot",
+      "description": "Cloud-synced ATCL ERP financial snapshot using native Firestore maps.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" },
+        "label": { "type": "string" },
+        "fiscalPeriod": { "type": "string" },
+        "currencyCode": { "type": "string" },
+        "status": { "type": "string", "enum": ["ACTIVE", "ARCHIVED"] },
+        "metrics": { "type": "object" },
+        "ledgerData": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerId",
+        "label",
+        "fiscalPeriod",
+        "currencyCode",
+        "status",
+        "metrics",
+        "ledgerData",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "WorkspaceActivity": {
+      "title": "WorkspaceActivity",
+      "description": "Immutable log of Google Workspace integration actions.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" },
+        "workspaceApp": {
+          "type": "string",
+          "enum": ["drive", "sheets", "gmail", "docs", "tasks", "chat", "contacts", "firestore"]
+        },
+        "action": { "type": "string" },
+        "targetTitle": { "type": "string" },
+        "targetId": { "type": "string" },
+        "status": { "type": "string", "enum": ["success", "error"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "workspaceApp", "action", "targetTitle", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserPublic" },
+      "description": "User public profile and RBAC role."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivate" },
+      "description": "Private PII and Workspace connection metadata."
+    },
+    "/erpSnapshots/{snapshotId}": {
+      "schema": { "$ref": "#/entities/ErpSnapshot" },
+      "description": "User-owned ERP ledger cloud backup snapshots."
+    },
+    "/workspaceActivity/{activityId}": {
+      "schema": { "$ref": "#/entities/WorkspaceActivity" },
+      "description": "User-owned Google Workspace integration activity log."
+    }
+  }
+}

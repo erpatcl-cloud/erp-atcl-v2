@@ -1,0 +1,8 @@
+{
+  "name": "ATCL ERP System",
+  "description": "Automated General Ledger Account Register System, Multi-Line Journal Posting Engine, and IFRS Financial Reporting Control Center for Advance Technology Consortium Ltd. (ATCL).",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

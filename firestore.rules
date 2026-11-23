@@ -1,0 +1,411 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// This security rules file assumes the following data structures:
+//
+// Collection: test/connection
+// Document ID: connection
+// Fields: None (public connectivity probe, read-only get)
+//
+// Collection: users/{userId}
+// Document ID: Firebase Auth UID (1..128 chars, [a-zA-Z0-9_-])
+// Fields:
+//   - uid: string (required, == userId, immutable)
+//   - displayName: string (required, 1..120 chars)
+//   - photoURL: string (optional, 0..500 chars)
+//   - role: string (required, enum: admin|finance_manager|accountant|procurement|sales|warehouse|viewer)
+//   - organization: string (optional, 0..160 chars)
+//   - createdAt: timestamp (required, immutable, == request.time on create)
+//   - updatedAt: timestamp (required, == request.time)
+//
+// Collection: users/{userId}/private/{docId}
+// Document ID: profile (1..128 chars, [a-zA-Z0-9_-])
+// Fields:
+//   - uid: string (required, == userId, immutable)
+//   - email: string (required, 1..254 chars, owner-only PII)
+//   - workspaceConnected: bool (required)
+//   - lastLoginAt: timestamp (required)
+//   - updatedAt: timestamp (required, == request.time)
+//
+// Collection: erpSnapshots/{snapshotId}
+// Document ID: auto/custom ID (1..128 chars, [a-zA-Z0-9_-])
+// Fields:
+//   - ownerId: string (required, 1..128 chars, == request.auth.uid on create, immutable)
+//   - label: string (required, 1..140 chars)
+//   - fiscalPeriod: string (required, 1..40 chars)
+//   - currencyCode: string (required, 1..10 chars)
+//   - status: string (required, ACTIVE|ARCHIVED; ARCHIVED locks non-admin updates)
+//   - metrics: map (required, bounded metric numbers)
+//   - ledgerData: map (required, bounded lists/config)
+//   - createdAt: timestamp (required, immutable, == request.time on create)
+//   - updatedAt: timestamp (required, == request.time)
+//
+// Collection: workspaceActivity/{activityId}
+// Document ID: auto/custom ID (1..128 chars, [a-zA-Z0-9_-])
+// Fields:
+//   - ownerId: string (required, 1..128 chars, == request.auth.uid on create)
+//   - workspaceApp: string (required, enum)
+//   - action: string (required, 1..80 chars)
+//   - targetTitle: string (required, 1..200 chars)
+//   - targetId: string (optional, 0..200 chars)
+//   - status: string (required, success|error)
+//   - createdAt: timestamp (required, == request.time; immutable doc)
+//
+// Collection: erpLedgers/{ledgerId}
+// Document ID: ledgerId (e.g. 'atcl_main', 1..128 chars, [a-zA-Z0-9_-])
+// Fields:
+//   - version: int (required, >= 1 on create, == existing.version + 1 on update)
+//   - organizationName: string (required, 1..160 chars)
+//   - updatedBy: string (required, == request.auth.uid)
+//   - updatedAt: timestamp (required, == request.time)
+//   - createdAt: timestamp (optional, == request.time on create, immutable once set)
+//
+// Collection: erpLedgers/{ledgerId}/domains/{domainKey}
+// Document ID: domainKey (enum: core|journal|master|procurement|sales|extensions)
+// Fields:
+//   - domainKey: string (required, == domainKey)
+//   - version: int (required, >= 1)
+//   - updatedBy: string (required, == request.auth.uid)
+//   - updatedAt: timestamp (required, == request.time)
+//   - payload: map (required)
+//
+// Collection: securityAudit/{logId}
+// Document ID: logId (1..128 chars, [a-zA-Z0-9_-])
+// Fields:
+//   - uid: string (required, == request.auth.uid)
+//   - email: string (optional, 0..254 chars)
+//   - action: string (required, 1..80 chars)
+//   - module: string (required, 1..60 chars)
+//   - details: string (optional, 0..2000 chars)
+//   - status: string (required, SUCCESS|WARNING|ERROR)
+//   - createdAt: timestamp (required, == request.time; append-only)
+//
+// ===============================================================
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isRootAdminToken() {
+      return isSignedIn() && request.auth.token.email == 'erpatcl@gmail.com';
+    }
+
+    function isAdmin() {
+      return isRootAdminToken() || (
+        isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
+    }
+
+    function isErpOperator() {
+      return isRootAdminToken() || (
+        isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in [
+          'admin', 'finance_manager', 'accountant', 'procurement', 'sales', 'warehouse'
+        ]
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    function isNonEmptyString(val, maxLen) {
+      return val is string && val.size() >= 1 && val.size() <= maxLen;
+    }
+
+    function isOptionalString(val, maxLen) {
+      return val is string && val.size() <= maxLen;
+    }
+
+    function isValidUserRole(role) {
+      return role in ['admin', 'finance_manager', 'accountant', 'procurement', 'sales', 'warehouse', 'viewer'];
+    }
+
+    function isValidWorkspaceService(svc) {
+      return svc in ['drive', 'sheets', 'gmail', 'docs', 'tasks', 'chat', 'contacts', 'firestore'];
+    }
+
+    function isBoundedMapList(listVal, maxLen) {
+      return listVal is list
+        && listVal.size() <= maxLen
+        && (listVal.size() == 0 || listVal[0] is map);
+    }
+
+    // ===============================================================
+    // Validation Blueprints (Anti-Update-Gap)
+    // ===============================================================
+
+    function isValidUserPublic(data, userId) {
+      let allowedKeys = ['uid', 'displayName', 'photoURL', 'role', 'organization', 'createdAt', 'updatedAt'];
+      let requiredKeys = ['uid', 'displayName', 'role', 'createdAt', 'updatedAt'];
+      return data.keys().hasAll(requiredKeys)
+        && data.keys().hasOnly(allowedKeys)
+        && data.uid == userId
+        && isNonEmptyString(data.displayName, 120)
+        && (!('photoURL' in data) || isOptionalString(data.photoURL, 500))
+        && (!('organization' in data) || isOptionalString(data.organization, 160))
+        && isValidUserRole(data.role)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivate(data, userId) {
+      let allowedKeys = ['uid', 'email', 'workspaceConnected', 'lastLoginAt', 'updatedAt'];
+      return data.keys().hasAll(allowedKeys)
+        && data.keys().hasOnly(allowedKeys)
+        && data.uid == userId
+        && isNonEmptyString(data.email, 254)
+        && data.workspaceConnected is bool
+        && data.lastLoginAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidErpSnapshot(data) {
+      let allowedKeys = [
+        'ownerId', 'label', 'fiscalPeriod', 'currencyCode',
+        'status', 'metrics', 'ledgerData', 'createdAt', 'updatedAt'
+      ];
+      return data.keys().hasAll(allowedKeys)
+        && data.keys().hasOnly(allowedKeys)
+        && isNonEmptyString(data.ownerId, 128)
+        && isNonEmptyString(data.label, 140)
+        && isNonEmptyString(data.fiscalPeriod, 40)
+        && isNonEmptyString(data.currencyCode, 10)
+        && data.status in ['ACTIVE', 'ARCHIVED']
+        && data.metrics is map
+        && data.metrics.keys().hasAll(['accountCount', 'postedTransactionCount', 'voucherCount', 'totalAssets', 'netProfit'])
+        && data.metrics.keys().hasOnly(['accountCount', 'postedTransactionCount', 'voucherCount', 'totalAssets', 'netProfit'])
+        && data.metrics.accountCount is number && data.metrics.accountCount >= 0
+        && data.metrics.postedTransactionCount is number && data.metrics.postedTransactionCount >= 0
+        && data.metrics.voucherCount is number && data.metrics.voucherCount >= 0
+        && data.metrics.totalAssets is number
+        && data.metrics.netProfit is number
+        && data.ledgerData is map
+        && data.ledgerData.keys().hasAll(['accounts', 'journalLines', 'postedTransactions'])
+        && data.ledgerData.keys().hasOnly(['accounts', 'journalLines', 'postedTransactions', 'vouchers', 'config'])
+        && isBoundedMapList(data.ledgerData.accounts, 500)
+        && isBoundedMapList(data.ledgerData.journalLines, 1500)
+        && isBoundedMapList(data.ledgerData.postedTransactions, 1500)
+        && (!('vouchers' in data.ledgerData) || isBoundedMapList(data.ledgerData.vouchers, 1000))
+        && (!('config' in data.ledgerData) || data.ledgerData.config is map)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidWorkspaceActivity(data) {
+      let allowedKeys = ['ownerId', 'workspaceApp', 'action', 'targetTitle', 'targetId', 'status', 'createdAt'];
+      let requiredKeys = ['ownerId', 'workspaceApp', 'action', 'targetTitle', 'status', 'createdAt'];
+      return data.keys().hasAll(requiredKeys)
+        && data.keys().hasOnly(allowedKeys)
+        && isNonEmptyString(data.ownerId, 128)
+        && isValidWorkspaceService(data.workspaceApp)
+        && isNonEmptyString(data.action, 80)
+        && isNonEmptyString(data.targetTitle, 200)
+        && (!('targetId' in data) || isOptionalString(data.targetId, 200))
+        && data.status in ['success', 'error']
+        && data.createdAt is timestamp;
+    }
+
+    function isValidErpLedger(data) {
+      let requiredKeys = ['version', 'organizationName', 'updatedBy', 'updatedAt'];
+      let allowedKeys = ['version', 'organizationName', 'updatedBy', 'updatedAt', 'createdAt'];
+      return data.keys().hasAll(requiredKeys)
+        && data.keys().hasOnly(allowedKeys)
+        && data.version is int
+        && data.version >= 1
+        && isNonEmptyString(data.organizationName, 160)
+        && isNonEmptyString(data.updatedBy, 128)
+        && data.updatedAt is timestamp
+        && (!('createdAt' in data) || data.createdAt is timestamp);
+    }
+
+    function isValidErpLedgerDomain(data, domainKey) {
+      let requiredKeys = ['domainKey', 'version', 'updatedBy', 'updatedAt', 'payload'];
+      return data.keys().hasAll(requiredKeys)
+        && data.keys().hasOnly(requiredKeys)
+        && domainKey in ['core', 'journal', 'master', 'procurement', 'sales', 'extensions']
+        && data.domainKey == domainKey
+        && data.version is int
+        && data.version >= 1
+        && isNonEmptyString(data.updatedBy, 128)
+        && data.updatedAt is timestamp
+        && data.payload is map;
+    }
+
+    function isValidSecurityAudit(data) {
+      let requiredKeys = ['uid', 'action', 'module', 'status', 'createdAt'];
+      let allowedKeys = ['uid', 'email', 'action', 'module', 'details', 'status', 'createdAt'];
+      return data.keys().hasAll(requiredKeys)
+        && data.keys().hasOnly(allowedKeys)
+        && isNonEmptyString(data.uid, 128)
+        && (!('email' in data) || isOptionalString(data.email, 254))
+        && isNonEmptyString(data.action, 80)
+        && isNonEmptyString(data.module, 60)
+        && (!('details' in data) || isOptionalString(data.details, 2000))
+        && data.status in ['SUCCESS', 'WARNING', 'ERROR']
+        && data.createdAt is timestamp;
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    match /test/connection {
+      allow get: if true;
+      allow list, create, update, delete: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isRootAdminToken();
+      allow create: if isSignedIn()
+        && isValidId(userId)
+        && isValidUserPublic(incoming(), userId)
+        && isOwner(userId)
+        && (incoming().role == 'viewer' || (incoming().role == 'admin' && isRootAdminToken()))
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn()
+        && isValidId(userId)
+        && isValidUserPublic(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'organization', 'updatedAt'])) ||
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'updatedAt']))
+        );
+      allow delete: if isAdmin();
+
+      match /private/{docId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isSignedIn()
+          && isValidId(docId)
+          && isValidUserPrivate(incoming(), userId)
+          && isOwner(userId)
+          && incoming().updatedAt == request.time;
+        allow update: if isSignedIn()
+          && isValidId(docId)
+          && isValidUserPrivate(incoming(), userId)
+          && isOwner(userId)
+          && incoming().uid == existing().uid
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'workspaceConnected', 'lastLoginAt', 'updatedAt']);
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    match /erpSnapshots/{snapshotId} {
+      allow get: if isSignedIn()
+        && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn()
+        && existing().ownerId == request.auth.uid;
+      allow create: if isSignedIn()
+        && isValidId(snapshotId)
+        && isValidErpSnapshot(incoming())
+        && incoming().ownerId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn()
+        && isValidId(snapshotId)
+        && isValidErpSnapshot(incoming())
+        && (existing().ownerId == request.auth.uid || isAdmin())
+        && existing().status != 'ARCHIVED'
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (incoming().diff(existing()).affectedKeys().hasOnly(['label', 'updatedAt'])) ||
+          (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) && incoming().status == 'ARCHIVED') ||
+          isAdmin()
+        );
+      allow delete: if isSignedIn()
+        && (existing().ownerId == request.auth.uid || isAdmin());
+    }
+
+    match /workspaceActivity/{activityId} {
+      allow get: if isSignedIn()
+        && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn()
+        && existing().ownerId == request.auth.uid;
+      allow create: if isSignedIn()
+        && isValidId(activityId)
+        && isValidWorkspaceActivity(incoming())
+        && incoming().ownerId == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isSignedIn()
+        && (existing().ownerId == request.auth.uid || isAdmin());
+    }
+
+    match /erpLedgers/{ledgerId} {
+      allow get, list: if isSignedIn();
+      allow create: if isErpOperator()
+        && isValidId(ledgerId)
+        && isValidErpLedger(incoming())
+        && incoming().updatedBy == request.auth.uid
+        && incoming().updatedAt == request.time
+        && (!('createdAt' in incoming()) || incoming().createdAt == request.time);
+      allow update: if isErpOperator()
+        && isValidId(ledgerId)
+        && isValidErpLedger(incoming())
+        && incoming().version == existing().version + 1
+        && incoming().updatedBy == request.auth.uid
+        && incoming().updatedAt == request.time
+        && (!('createdAt' in existing())
+          ? (!('createdAt' in incoming()) || incoming().createdAt == request.time)
+          : ('createdAt' in incoming() && incoming().createdAt == existing().createdAt));
+      allow delete: if isAdmin();
+
+      match /domains/{domainKey} {
+        allow get, list: if isSignedIn();
+        allow create, update: if isErpOperator()
+          && isValidId(ledgerId)
+          && isValidErpLedgerDomain(incoming(), domainKey)
+          && incoming().updatedBy == request.auth.uid
+          && incoming().updatedAt == request.time;
+        allow delete: if isAdmin();
+      }
+    }
+
+    match /securityAudit/{logId} {
+      allow get, list: if isAdmin();
+      allow create: if isSignedIn()
+        && isValidId(logId)
+        && isValidSecurityAudit(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+  }
+}

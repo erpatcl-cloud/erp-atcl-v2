@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan for adding Global Custom Instructions to ATCL ERP, covering the System Configuration tab and quick header drawer, live app theme/style presets and AI formatting controls, Gemini 4 model and thinking-level routing, server-persisted knowledge rules/glossary/reference file uploads, and four live AI workflows (Executive ERP Assistant, Smart Voucher/Journal Drafting, Financial Report & Audit Insights, and Template Studio Generation).",
+  "updatedAt":  "2026-11-20T19:00:02.117661838Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

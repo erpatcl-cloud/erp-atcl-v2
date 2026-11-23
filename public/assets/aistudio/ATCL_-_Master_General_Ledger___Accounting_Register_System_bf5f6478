@@ -1,0 +1,23 @@
+ADVANCE TECHNOLOGY CONSORTIUM LTD. (ATCL),,,,,
+AUTOMATED GENERAL LEDGER ACCOUNT REGISTER SYSTEM,,,,,
+Master Financial Control Center & Multi-Register Synchronizer,,,,,
+,,,,,
+SYSTEM OVERVIEW & KEY PERFORMANCE INDICATORS,,,,,
+Total GL Accounts,54,Total Active Registers,54,Reporting Currency,BDT
+Total Asset Accounts,9,Total Liability Accounts,7,Total Equity Accounts,4
+Total Income Accounts,2,Total Expense Accounts,32,Fiscal Period,2024-2025
+,,,,,
+FINANCIAL EQUATION BALANCE MONITOR,,,,,
+Total Assets (BDT),378634624.4,Total Liabilities (BDT),142196535.4,Total Equity (BDT),236438088.6
+Net Income / Profit,0,Equation Check:,✅ BALANCED (A = L + E + Profit),Trial Balance Status:,✅ OPENING TRIAL BALANCE BALANCED | ✅ CLOSING TRIAL BALANCE BALANCED
+,,,,,
+QUICK NAVIGATION MENU,,,,,
+Sheet Name,Direct Link,Description,,,
+Chart of Accounts,📋 Chart of Accounts,54 GL Accounts with individual Drive Register links,,,
+Master Journal Entry,✍️ Master Journal,Operational transaction and voucher entry sheet,,,
+Posted Journal Store,🔒 Posted Journal Store,Immutable authoritative ledger store,,,
+GL Summary Dashboard,📊 GL Summary Dashboard,Consolidated real-time GL balances and KPIs,,,
+Trial Balance,⚖️ Trial Balance,8-Column statutory Trial Balance with auto-reconciliation,,,
+Income Statement,📈 Income Statement,IFRS Profit or Loss Statement,,,
+Balance Sheet,🏛️ Balance Sheet,IFRS Statement of Financial Position,,,
+System Audit Log,📜 Audit Trail,Full chronological system operation audit log,,,
